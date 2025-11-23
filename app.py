@@ -17,6 +17,12 @@ from routes import events, sermons
 app.register_blueprint(events.bp)
 app.register_blueprint(sermons.bp)
 
+# ----- ADD THIS ROUTE -----
+@app.route('/health')
+def health():
+    return 'OK', 200
+# -------------------------
+
 with app.app_context():
     db.create_all()
     uploads_dir = os.path.join(app.root_path, 'static', 'uploads')
