@@ -4,25 +4,31 @@ from models import db
 import os
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+
+# -----------------------------
+# 🔗 Supabase PostgreSQL Connection
+# -----------------------------
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgres:Njugunaa1!1@db.qkwkheukgubkqqccyzpu.supabase.co:5432/postgres?sslmode=require"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 
+# Allow CORS
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+# Initialize DB
 db.init_app(app)
 
+# Blueprints
 from routes import events, sermons
-
 app.register_blueprint(events.bp)
 app.register_blueprint(sermons.bp)
 
-# ----- ADD THIS ROUTE -----
+# Health Check
 @app.route('/health')
 def health():
     return 'OK', 200
-# -------------------------
 
+# Create tables + uploads folder
 with app.app_context():
     db.create_all()
     uploads_dir = os.path.join(app.root_path, 'static', 'uploads')
