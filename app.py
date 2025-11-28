@@ -1,17 +1,19 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import Event, Sermon
-import os
 import requests
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app)
 
-# ---------------------------------------
+# ------------------------------------
 # Supabase Config
-# ---------------------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")  # MUST end with /rest/v1
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Service Role Key
+# ------------------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+REST_URL = f"{SUPABASE_URL}/rest/v1"
+STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -19,173 +21,101 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ---------------------------------------
-# Upload folder (Event posters)
-# ---------------------------------------
-UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# ------------------------------------
+# Upload to Supabase Storage
+# ------------------------------------
+def upload_image(file):
+    if not file:
+        return None
 
-# ---------------------------------------
-# Helper – handles BOTH JSON + form-data
-# ---------------------------------------
-def get_json_or_form():
-    if request.is_json:
-        return request.get_json()
-    else:
-        return request.form.to_dict()
+    filename = file.filename
+    file_bytes = file.read()
 
-# =======================================
-# EVENTS ROUTES
-# =======================================
+    upload_path = f"churchbucket/{filename}"
 
-# Get all events
+    r = requests.post(
+        f"{STORAGE_URL}/{upload_path}",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/octet-stream"
+        },
+        data=file_bytes
+    )
+
+    if r.status_code not in [200, 201]:
+        print("UPLOAD ERROR:", r.text)
+        return None
+
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/churchbucket/{filename}"
+    return public_url
+
+
+# ------------------------------------
+# EVENTS CRUD
+# ------------------------------------
 @app.route("/api/events", methods=["GET"])
 def get_events():
-    try:
-        url = f"{SUPABASE_URL}/events?select=*"
-        r = requests.get(url, headers=HEADERS)
-        r.raise_for_status()
-        events = [Event(e).to_dict() for e in r.json()]
-        return jsonify(events), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    r = requests.get(f"{REST_URL}/events", headers=HEADERS)
+    return jsonify(r.json()), 200
 
-
-# Create event
 @app.route("/api/events", methods=["POST"])
 def create_event():
-    try:
-        file = request.files.get("image")
-        image_url = None
+    image = upload_image(request.files.get("image"))
 
-        if file:
-            filename = file.filename
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            file.save(filepath)
-            image_url = f"/static/uploads/{filename}"
+    payload = {
+        "title": request.form.get("title"),
+        "description": request.form.get("description"),
+        "date": request.form.get("date"),
+        "time": request.form.get("time"),
+        "location": request.form.get("location"),
+        "category": request.form.get("category"),
+        "image_path": image
+    }
 
-        payload = get_json_or_form()
-        payload["image_path"] = image_url
+    r = requests.post(f"{REST_URL}/events", headers=HEADERS, json=payload)
+    return jsonify(r.json()), 201
 
-        url = f"{SUPABASE_URL}/events"
-        r = requests.post(url, headers=HEADERS, json=payload)
-        r.raise_for_status()
-
-        created = r.json()
-        return jsonify(created), 201
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/api/events/<id>", methods=["DELETE"])
+def delete_event(id):
+    r = requests.delete(f"{REST_URL}/events?id=eq.{id}", headers=HEADERS)
+    return jsonify({"message": "Deleted"}), 200
 
 
-# Update event
-@app.route("/api/events/<int:event_id>", methods=["PUT"])
-def update_event(event_id):
-    try:
-        payload = get_json_or_form()
-
-        url = f"{SUPABASE_URL}/events?id=eq.{event_id}"
-        r = requests.patch(url, headers=HEADERS, json=payload)
-        r.raise_for_status()
-
-        updated = r.json()
-        if not updated:
-            return jsonify({"error": "Event not found"}), 404
-
-        return jsonify(updated[0]), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# Delete event
-@app.route("/api/events/<int:event_id>", methods=["DELETE"])
-def delete_event(event_id):
-    try:
-        url = f"{SUPABASE_URL}/events?id=eq.{event_id}"
-        r = requests.delete(url, headers=HEADERS)
-        r.raise_for_status()
-        return jsonify({"message": "Event deleted"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# =======================================
-# SERMONS ROUTES
-# =======================================
-
-# Get all sermons
+# ------------------------------------
+# SERMONS CRUD
+# ------------------------------------
 @app.route("/api/sermons", methods=["GET"])
 def get_sermons():
-    try:
-        url = f"{SUPABASE_URL}/sermons?select=*"
-        r = requests.get(url, headers=HEADERS)
-        r.raise_for_status()
-        sermons = [Sermon(s).to_dict() for s in r.json()]
-        return jsonify(sermons), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    r = requests.get(f"{REST_URL}/sermons", headers=HEADERS)
+    return jsonify(r.json()), 200
 
-
-# Create sermon
 @app.route("/api/sermons", methods=["POST"])
 def create_sermon():
-    try:
-        payload = get_json_or_form()
+    image = upload_image(request.files.get("image"))
 
-        url = f"{SUPABASE_URL}/sermons"
-        r = requests.post(url, headers=HEADERS, json=payload)
-        r.raise_for_status()
+    payload = {
+        "title": request.form.get("title"),
+        "speaker_or_leader": request.form.get("speaker_or_leader"),
+        "date": request.form.get("date"),
+        "description": request.form.get("description"),
+        "media_url": request.form.get("media_url"),
+        "image_path": image
+    }
 
-        created = r.json()
-        return jsonify(created), 201
+    r = requests.post(f"{REST_URL}/sermons", headers=HEADERS, json=payload)
+    return jsonify(r.json()), 201
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# Update sermon
-@app.route("/api/sermons/<int:sermon_id>", methods=["PUT"])
-def update_sermon(sermon_id):
-    try:
-        payload = get_json_or_form()
-
-        url = f"{SUPABASE_URL}/sermons?id=eq.{sermon_id}"
-        r = requests.patch(url, headers=HEADERS, json=payload)
-        r.raise_for_status()
-
-        updated = r.json()
-        if not updated:
-            return jsonify({"error": "Sermon not found"}), 404
-
-        return jsonify(updated[0]), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/api/sermons/<id>", methods=["DELETE"])
+def delete_sermon(id):
+    r = requests.delete(f"{REST_URL}/sermons?id=eq.{id}", headers=HEADERS)
+    return jsonify({"message": "Deleted"}), 200
 
 
-# Delete sermon
-@app.route("/api/sermons/<int:sermon_id>", methods=["DELETE"])
-def delete_sermon(sermon_id):
-    try:
-        url = f"{SUPABASE_URL}/sermons?id=eq.{sermon_id}"
-        r = requests.delete(url, headers=HEADERS)
-        r.raise_for_status()
-        return jsonify({"message": "Sermon deleted"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ---------------------------------------
-# Health Check
-# ---------------------------------------
 @app.route("/health")
 def health():
-    return "OK", 200
+    return "OK"
 
 
-# ---------------------------------------
-# Run app
-# ---------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(debug=True)
