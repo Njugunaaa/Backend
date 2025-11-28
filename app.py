@@ -19,6 +19,10 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# For POST requests to return the created row
+HEADERS_POST = HEADERS.copy()
+HEADERS_POST["Prefer"] = "return=representation"
+
 # -----------------------------
 # Uploads folder (for events images)
 # -----------------------------
@@ -47,22 +51,24 @@ def create_event():
         filename = file.filename
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-        image_url = f"/static/uploads/{filename}"  # returned to frontend
+        image_url = f"/static/uploads/{filename}"
 
     payload = {
-        "title": request.form.get("title"),
-        "description": request.form.get("description"),
-        "image_path": image_url,
-        "date": request.form.get("date"),
-        "time": request.form.get("time"),
-        "location": request.form.get("location"),
-        "category": request.form.get("category")
+        "title": request.form.get("title", ""),
+        "description": request.form.get("description", ""),
+        "image_path": image_url or "",
+        "date": request.form.get("date", ""),
+        "time": request.form.get("time", ""),
+        "location": request.form.get("location", ""),
+        "category": request.form.get("category", "")
     }
 
     try:
-        r = requests.post(f"{SUPABASE_URL}/events", headers=HEADERS, json=payload)
+        r = requests.post(f"{SUPABASE_URL}/events", headers=HEADERS_POST, json=payload)
         r.raise_for_status()
-        return jsonify(Event(r.json()).to_dict()), 201
+        # Supabase returns a list of created rows
+        created_event = r.json()[0]
+        return jsonify(Event(created_event).to_dict()), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -82,17 +88,18 @@ def get_sermons():
 @app.route("/api/sermons", methods=["POST"])
 def create_sermon():
     payload = {
-        "title": request.json.get("title"),
-        "speaker_or_leader": request.json.get("speaker_or_leader"),
-        "date": request.json.get("date"),
-        "description": request.json.get("description"),
-        "media_url": request.json.get("media_url")  # YouTube or other link
+        "title": request.json.get("title", ""),
+        "speaker_or_leader": request.json.get("speaker_or_leader", ""),
+        "date": request.json.get("date", ""),
+        "description": request.json.get("description", ""),
+        "media_url": request.json.get("media_url", "")
     }
 
     try:
-        r = requests.post(f"{SUPABASE_URL}/sermons", headers=HEADERS, json=payload)
+        r = requests.post(f"{SUPABASE_URL}/sermons", headers=HEADERS_POST, json=payload)
         r.raise_for_status()
-        return jsonify(Sermon(r.json()).to_dict()), 201
+        created_sermon = r.json()[0]
+        return jsonify(Sermon(created_sermon).to_dict()), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
