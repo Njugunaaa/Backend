@@ -6,3 +6,5 @@ pytz==2023.3
 Werkzeug==3.0.1
 gunicorn
 psycopg2-binary
+requests==2.32.0
+
