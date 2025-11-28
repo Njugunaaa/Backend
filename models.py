@@ -8,14 +8,14 @@ class Event(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text)
-    image_path = db.Column(db.String(500))
+    description = db.Column(db.Text, nullable=True)
+    image_path = db.Column(db.Text, nullable=True)
     date = db.Column(db.Date, nullable=False)
-    time = db.Column(db.Time)
-    location = db.Column(db.String(200))
-    category = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    time = db.Column(db.Time, nullable=True)
+    location = db.Column(db.String(200), nullable=True)
+    category = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), onupdate=db.func.now())
     
     def to_dict(self):
         return {
@@ -36,12 +36,12 @@ class Sermon(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
-    speaker_or_leader = db.Column(db.String(200))
+    speaker_or_leader = db.Column(db.String(200), nullable=True)
     date = db.Column(db.Date, nullable=False)
-    description = db.Column(db.Text)
-    media_url = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    description = db.Column(db.Text, nullable=True)
+    media_url = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now())
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), onupdate=db.func.now())
     
     def to_dict(self):
         return {
