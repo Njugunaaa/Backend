@@ -8,7 +8,7 @@ app = Flask(__name__)
 # -----------------------------
 # 🔗 Supabase PostgreSQL Connection
 # -----------------------------
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgres:Njugunaa1!1@db.qkwkheukgubkqqccyzpu.supabase.co:5432/postgres?sslmode=require"
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 
@@ -36,3 +36,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
+
