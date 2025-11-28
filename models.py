@@ -1,9 +1,10 @@
+# models.py
 class Event:
     def __init__(self, data):
         self.id = data.get('id')
         self.title = data.get('title')
         self.description = data.get('description')
-        self.image_path = data.get('image_path')
+        self.image_path = data.get('image_path')  # URL to uploaded file
         self.date = data.get('date')
         self.time = data.get('time')
         self.location = data.get('location')
@@ -22,7 +23,7 @@ class Sermon:
         self.speaker_or_leader = data.get('speaker_or_leader')
         self.date = data.get('date')
         self.description = data.get('description')
-        self.media_url = data.get('media_url')
+        self.media_url = data.get('media_url')  # YouTube URL
         self.created_at = data.get('created_at')
         self.updated_at = data.get('updated_at')
 
