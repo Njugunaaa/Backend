@@ -2,7 +2,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import requests
+from supabase import create_client
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -10,50 +10,50 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # -----------------------------
 # Supabase Config
 # -----------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")  # e.g. https://xyz.supabase.co
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Service role key
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # service_role key
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"  # ensures JSON response
 }
-
-STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object"
 
 # -----------------------------
 # Helper functions
 # -----------------------------
 def upload_file_to_supabase(file, bucket="uploads"):
     filename = file.filename
-    tmp_path = os.path.join("/tmp", filename)
-    file.save(tmp_path)
-    url = f"{STORAGE_URL}/upload/{bucket}/{filename}"
-    headers = {"Authorization": f"Bearer {SUPABASE_KEY}"}
-    with open(tmp_path, "rb") as f:
-        res = requests.post(url, headers=headers, files={"file": f})
-    if res.status_code != 200:
-        raise Exception(f"Upload failed: {res.text}")
-    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{filename}"
+    file_content = file.read()
+    res = supabase.storage.from_(bucket).upload(filename, file_content, {"upsert": True})
+    if res.get("error"):
+        raise Exception(f"Upload failed: {res['error']['message']}")
+    public_url = supabase.storage.from_(bucket).get_public_url(filename)
+    return public_url
 
 def supabase_get(table):
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS)
-    r.raise_for_status()
-    return r.json()
+    r = supabase.rest.from_(table).select("*")
+    return r
 
 def supabase_post(table, payload):
-    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS, json=payload)
-    r.raise_for_status()
-    return r.json()
+    r = supabase.rest.from_(table).insert(payload).execute()
+    if r.get("status_code", 0) >= 400:
+        raise Exception(r.get("error", {}).get("message", "Unknown error"))
+    return r.get("data", [])
 
 def supabase_patch(table, record_id, payload):
-    r = requests.patch(f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{record_id}", headers=HEADERS, json=payload)
-    r.raise_for_status()
-    return r.json()
+    r = supabase.rest.from_(table).update(payload).eq("id", record_id).execute()
+    if r.get("status_code", 0) >= 400:
+        raise Exception(r.get("error", {}).get("message", "Unknown error"))
+    return r.get("data", [])
 
 def supabase_delete(table, record_id):
-    r = requests.delete(f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{record_id}", headers=HEADERS)
-    r.raise_for_status()
-    return r.json()
+    r = supabase.rest.from_(table).delete().eq("id", record_id).execute()
+    if r.get("status_code", 0) >= 400:
+        raise Exception(r.get("error", {}).get("message", "Unknown error"))
+    return {"deleted": True}
 
 # -----------------------------
 # Routes: Events
@@ -80,7 +80,7 @@ def create_event():
             "location": request.form.get("location") or "",
             "category": request.form.get("category") or ""
         }
-        return jsonify(supabase_post("events", payload)), 201
+        return jsonify(supabase_post("events", [payload])), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -130,7 +130,7 @@ def create_sermon():
             "description": request.json.get("description") or "",
             "media_url": request.json.get("media_url") or ""
         }
-        return jsonify(supabase_post("sermons", payload)), 201
+        return jsonify(supabase_post("sermons", [payload])), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
