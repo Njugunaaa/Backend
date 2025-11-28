@@ -1,121 +1,169 @@
-import os
+# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os
 import requests
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# ------------------------------------
+# -----------------------------
 # Supabase Config
-# ------------------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-REST_URL = f"{SUPABASE_URL}/rest/v1"
-STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object"
-
+# -----------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL")  # e.g. https://xyz.supabase.co
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Service role key
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json"
 }
 
-# ------------------------------------
-# Upload to Supabase Storage
-# ------------------------------------
-def upload_image(file):
-    if not file:
-        return None
+STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object"
 
+# -----------------------------
+# Helper functions
+# -----------------------------
+def upload_file_to_supabase(file, bucket="uploads"):
     filename = file.filename
-    file_bytes = file.read()
+    tmp_path = os.path.join("/tmp", filename)
+    file.save(tmp_path)
+    url = f"{STORAGE_URL}/upload/{bucket}/{filename}"
+    headers = {"Authorization": f"Bearer {SUPABASE_KEY}"}
+    with open(tmp_path, "rb") as f:
+        res = requests.post(url, headers=headers, files={"file": f})
+    if res.status_code != 200:
+        raise Exception(f"Upload failed: {res.text}")
+    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{filename}"
 
-    upload_path = f"churchbucket/{filename}"
+def supabase_get(table):
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS)
+    r.raise_for_status()
+    return r.json()
 
-    r = requests.post(
-        f"{STORAGE_URL}/{upload_path}",
-        headers={
-            "apikey": SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
-            "Content-Type": "application/octet-stream"
-        },
-        data=file_bytes
-    )
+def supabase_post(table, payload):
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS, json=payload)
+    r.raise_for_status()
+    return r.json()
 
-    if r.status_code not in [200, 201]:
-        print("UPLOAD ERROR:", r.text)
-        return None
+def supabase_patch(table, record_id, payload):
+    r = requests.patch(f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{record_id}", headers=HEADERS, json=payload)
+    r.raise_for_status()
+    return r.json()
 
-    public_url = f"{SUPABASE_URL}/storage/v1/object/public/churchbucket/{filename}"
-    return public_url
+def supabase_delete(table, record_id):
+    r = requests.delete(f"{SUPABASE_URL}/rest/v1/{table}?id=eq.{record_id}", headers=HEADERS)
+    r.raise_for_status()
+    return r.json()
 
-
-# ------------------------------------
-# EVENTS CRUD
-# ------------------------------------
+# -----------------------------
+# Routes: Events
+# -----------------------------
 @app.route("/api/events", methods=["GET"])
 def get_events():
-    r = requests.get(f"{REST_URL}/events", headers=HEADERS)
-    return jsonify(r.json()), 200
+    try:
+        return jsonify(supabase_get("events")), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/events", methods=["POST"])
 def create_event():
-    image = upload_image(request.files.get("image"))
+    try:
+        file = request.files.get("image")
+        image_url = upload_file_to_supabase(file) if file else None
 
-    payload = {
-        "title": request.form.get("title"),
-        "description": request.form.get("description"),
-        "date": request.form.get("date"),
-        "time": request.form.get("time"),
-        "location": request.form.get("location"),
-        "category": request.form.get("category"),
-        "image_path": image
-    }
+        payload = {
+            "title": request.form.get("title") or "",
+            "description": request.form.get("description") or "",
+            "image_path": image_url or "",
+            "date": request.form.get("date") or "",
+            "time": request.form.get("time") or "",
+            "location": request.form.get("location") or "",
+            "category": request.form.get("category") or ""
+        }
+        return jsonify(supabase_post("events", payload)), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    r = requests.post(f"{REST_URL}/events", headers=HEADERS, json=payload)
-    return jsonify(r.json()), 201
+@app.route("/api/events/<int:event_id>", methods=["PATCH"])
+def update_event(event_id):
+    try:
+        file = request.files.get("image")
+        image_url = upload_file_to_supabase(file) if file else None
 
-@app.route("/api/events/<id>", methods=["DELETE"])
-def delete_event(id):
-    r = requests.delete(f"{REST_URL}/events?id=eq.{id}", headers=HEADERS)
-    return jsonify({"message": "Deleted"}), 200
+        payload = {
+            "title": request.form.get("title") or "",
+            "description": request.form.get("description") or "",
+            "image_path": image_url if image_url else request.form.get("image_path"),
+            "date": request.form.get("date") or "",
+            "time": request.form.get("time") or "",
+            "location": request.form.get("location") or "",
+            "category": request.form.get("category") or ""
+        }
+        return jsonify(supabase_patch("events", event_id, payload)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
+@app.route("/api/events/<int:event_id>", methods=["DELETE"])
+def delete_event(event_id):
+    try:
+        return jsonify(supabase_delete("events", event_id)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-# ------------------------------------
-# SERMONS CRUD
-# ------------------------------------
+# -----------------------------
+# Routes: Sermons
+# -----------------------------
 @app.route("/api/sermons", methods=["GET"])
 def get_sermons():
-    r = requests.get(f"{REST_URL}/sermons", headers=HEADERS)
-    return jsonify(r.json()), 200
+    try:
+        return jsonify(supabase_get("sermons")), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/sermons", methods=["POST"])
 def create_sermon():
-    image = upload_image(request.files.get("image"))
+    try:
+        payload = {
+            "title": request.json.get("title") or "",
+            "speaker_or_leader": request.json.get("speaker_or_leader") or "",
+            "date": request.json.get("date") or "",
+            "description": request.json.get("description") or "",
+            "media_url": request.json.get("media_url") or ""
+        }
+        return jsonify(supabase_post("sermons", payload)), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    payload = {
-        "title": request.form.get("title"),
-        "speaker_or_leader": request.form.get("speaker_or_leader"),
-        "date": request.form.get("date"),
-        "description": request.form.get("description"),
-        "media_url": request.form.get("media_url"),
-        "image_path": image
-    }
+@app.route("/api/sermons/<int:sermon_id>", methods=["PATCH"])
+def update_sermon(sermon_id):
+    try:
+        payload = {
+            "title": request.json.get("title") or "",
+            "speaker_or_leader": request.json.get("speaker_or_leader") or "",
+            "date": request.json.get("date") or "",
+            "description": request.json.get("description") or "",
+            "media_url": request.json.get("media_url") or ""
+        }
+        return jsonify(supabase_patch("sermons", sermon_id, payload)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    r = requests.post(f"{REST_URL}/sermons", headers=HEADERS, json=payload)
-    return jsonify(r.json()), 201
+@app.route("/api/sermons/<int:sermon_id>", methods=["DELETE"])
+def delete_sermon(sermon_id):
+    try:
+        return jsonify(supabase_delete("sermons", sermon_id)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/api/sermons/<id>", methods=["DELETE"])
-def delete_sermon(id):
-    r = requests.delete(f"{REST_URL}/sermons?id=eq.{id}", headers=HEADERS)
-    return jsonify({"message": "Deleted"}), 200
-
-
+# -----------------------------
+# Health Check
+# -----------------------------
 @app.route("/health")
 def health():
-    return "OK"
+    return "OK", 200
 
-
+# -----------------------------
+# Run App
+# -----------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True)
