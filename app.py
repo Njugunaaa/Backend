@@ -1,192 +1,113 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import uuid
-from werkzeug.utils import secure_filename
 from supabase import create_client, Client
-import os
-from models import Event, Sermon
-from datetime import datetime
+from werkzeug.utils import secure_filename
+import uuid
 
 app = Flask(__name__)
 CORS(app)
 
-# ---------------------------
-# Supabase Setup
-# ---------------------------
+# ---------------- SUPABASE CONFIG ----------------
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise Exception("Supabase environment variables NOT found.")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-ADMIN_PASSWORD = "Elim@2025"
+# ---------------- HELPERS ----------------
+def upload_to_bucket(file, bucket="uploads"):
+    """
+    Upload file to Supabase storage and return public URL.
+    """
+    try:
+        filename = secure_filename(file.filename)
+        ext = filename.split(".")[-1]
+        new_name = f"{uuid.uuid4()}.{ext}"
+        file_path = f"{new_name}"  # store directly in bucket
 
+        # Upload the file
+        supabase.storage.from_(bucket).upload(file_path, file, {"content-type": file.mimetype})
 
-def admin_only(req):
-    pw = req.headers.get("X-ADMIN-PASSWORD", "")
-    return pw == ADMIN_PASSWORD
+        # Get public URL
+        public_url = supabase.storage.from_(bucket).get_public_url(file_path)
+        return public_url
+    except Exception as e:
+        print("UPLOAD ERROR:", e)
+        return None
 
-
-# ---------------------------
-# Upload Helper
-# ---------------------------
-def upload_to_bucket(file):
-    filename = secure_filename(file.filename)
-    ext = filename.split(".")[-1]
-
-    new_name = f"{uuid.uuid4()}.{ext}"
-    file_path = f"events/{new_name}"  # Folder inside the bucket
-
-    # Upload
-    upload = supabase.storage.from_("uploads").upload(
-        file_path,
-        file,
-        {"content-type": file.mimetype}
-    )
-
-    # Generate public URL
-    public_url = supabase.storage.from_("uploads").get_public_url(file_path)
-    return public_url
-
-
-# ======================================================
-# EVENTS ROUTES
-# ======================================================
-
+# ---------------- EVENTS ROUTES ----------------
 @app.route("/api/events", methods=["GET"])
 def get_events():
-    res = supabase.table("events").select("*").execute()
-    if res.data is None:
-        return jsonify([]), 200
-
-    events = [Event(row).to_dict() for row in res.data]
-    return jsonify(events), 200
-
+    try:
+        data = supabase.table("events").select("*").order("created_at", desc=True).execute()
+        return jsonify(data.data), 200
+    except Exception as e:
+        print("EVENTS GET ERROR:", e)
+        return jsonify({"error": "Failed to fetch events"}), 500
 
 @app.route("/api/events", methods=["POST"])
 def create_event():
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        # Get form data
+        title = request.form.get("title")
+        description = request.form.get("description")
+        date = request.form.get("date")
+        time = request.form.get("time")
+        location = request.form.get("location")
+        category = request.form.get("category")
 
-    title = request.form.get("title", "")
-    description = request.form.get("description", "")
-    date = request.form.get("date", "")
-    time = request.form.get("time", "")
-    location = request.form.get("location", "")
-    category = request.form.get("category", "")
+        # Handle file upload
+        image_file = request.files.get("image")
+        image_path = None
+        if image_file:
+            image_path = upload_to_bucket(image_file, bucket="uploads")
 
-    image_url = None
-    if "image" in request.files:
-        image_url = upload_to_bucket(request.files["image"])
+        # Insert into Supabase
+        payload = {
+            "title": title,
+            "description": description,
+            "date": date,
+            "time": time,
+            "location": location,
+            "category": category,
+            "image_path": image_path
+        }
+        result = supabase.table("events").insert(payload).execute()
+        return jsonify(result.data), 201
 
-    payload = {
-        "title": title,
-        "description": description,
-        "date": date,
-        "time": time,
-        "location": location,
-        "category": category,
-        "image_url": image_url,   # MUST MATCH SUPABASE COLUMN
-    }
+    except Exception as e:
+        print("EVENT CREATE ERROR:", e)
+        return jsonify({"error": "Failed to create event"}), 500
 
-    res = supabase.table("events").insert(payload).execute()
-
-    if res.data:
-        return jsonify(res.data[0]), 201
-
-    return jsonify({"error": "Failed to save event"}), 400
-
-
-@app.route("/api/events/<int:event_id>", methods=["PATCH"])
+@app.route("/api/events/<int:event_id>", methods=["PUT"])
 def update_event(event_id):
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        title = request.form.get("title")
+        description = request.form.get("description")
+        date = request.form.get("date")
+        time = request.form.get("time")
+        location = request.form.get("location")
+        category = request.form.get("category")
 
-    updates = {}
+        update_data = {
+            "title": title,
+            "description": description,
+            "date": date,
+            "time": time,
+            "location": location,
+            "category": category
+        }
 
-    for key in ["title", "description", "date", "time", "location", "category"]:
-        val = request.form.get(key)
-        if val is not None:
-            updates[key] = val
+        image_file = request.files.get("image")
+        if image_file:
+            update_data["image_path"] = upload_to_bucket(image_file, bucket="uploads")
 
-    if "image" in request.files:
-        updates["image_url"] = upload_to_bucket(request.files["image"])
+        result = supabase.table("events").update(update_data).eq("id", event_id).execute()
+        return jsonify(result.data), 200
 
-    res = supabase.table("events").update(updates).eq("id", event_id).execute()
-
-    if res.data:
-        return jsonify(res.data[0]), 200
-
-    return jsonify({"error": "Failed to update event"}), 400
-
-
-@app.route("/api/events/<int:event_id>", methods=["DELETE"])
-def delete_event(event_id):
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    res = supabase.table("events").delete().eq("id", event_id).execute()
-    return jsonify({"message": "Deleted"}), 200
-
-
-# ======================================================
-# SERMONS ROUTES (UNCHANGED)
-# ======================================================
-
-@app.route("/api/sermons", methods=["GET"])
-def get_sermons():
-    res = supabase.table("sermons").select("*").execute()
-    sermons = [Sermon(row).to_dict() for row in res.data]
-    return jsonify(sermons), 200
-
-
-@app.route("/api/sermons", methods=["POST"])
-def create_sermon():
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    data = request.json
-    payload = {
-        "title": data.get("title", ""),
-        "speaker_or_leader": data.get("speaker_or_leader", ""),
-        "description": data.get("description", ""),
-        "media_url": data.get("media_url", ""),
-        "date": data.get("date", "")
-    }
-
-    res = supabase.table("sermons").insert(payload).execute()
-    if res.data:
-        return jsonify(res.data[0]), 201
-
-    return jsonify({"error": "Failed to save sermon"}), 400
-
-
-@app.route("/api/sermons/<int:sid>", methods=["PATCH"])
-def update_sermon(sid):
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    updates = request.json or {}
-    res = supabase.table("sermons").update(updates).eq("id", sid).execute()
-
-    if res.data:
-        return jsonify(res.data[0]), 200
-
-    return jsonify({"error": "Failed to update sermon"}), 400
-
-
-@app.route("/api/sermons/<int:sid>", methods=["DELETE"])
-def delete_sermon(sid):
-    if not admin_only(request):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    supabase.table("sermons").delete().eq("id", sid).execute()
-    return jsonify({"message": "Deleted"}), 200
-
-
-@app.route("/")
-def home():
-    return jsonify({"message": "Backend running"}), 200
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
+    except Exception as e:
+        print("EVENT UPDATE ERROR:", e)
+        return jsonify({"error": "Failed to update event"}), 500
