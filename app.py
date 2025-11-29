@@ -28,7 +28,7 @@ def upload_file_to_supabase(file, bucket="uploads"):
     if res.get("error"):
         raise Exception(res["error"]["message"])
     public_url = supabase.storage.from_(bucket).get_public_url(filename).get("publicURL")
-    return public_url
+    return str(public_url)
 
 # -----------------------------
 # Events Routes
@@ -160,3 +160,4 @@ def health():
 # -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
+
