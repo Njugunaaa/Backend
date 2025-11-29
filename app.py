@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ---------------------------------------------------
-# SUPABASE CONFIG
+#  SUPABASE CONFIG
 # ---------------------------------------------------
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -20,25 +20,25 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------------------------------------------
-# HELPERS
+#  HELPERS
 # ---------------------------------------------------
 def upload_to_bucket(file, bucket="uploads"):
     """Upload a file to Supabase storage and return its public URL."""
     try:
-        if file is None:
+        if not file:
             return None
 
         filename = secure_filename(file.filename)
         ext = filename.split(".")[-1]
         new_name = f"{uuid.uuid4()}.{ext}"
 
-        # Supabase expects bytes
+        # Convert file to bytes
         file_bytes = file.read()
 
-        # Upload to bucket
+        # Upload to Supabase
         res = supabase.storage.from_(bucket).upload(new_name, file_bytes, {"content-type": file.mimetype})
         if not res:
-            print("Upload returned False")
+            print("UPLOAD FAILED")
             return None
 
         # Get public URL
@@ -52,7 +52,36 @@ def upload_to_bucket(file, bucket="uploads"):
         return None
 
 # ---------------------------------------------------
-# EVENTS ROUTES
+#  SERMONS ROUTES (UNCHANGED)
+# ---------------------------------------------------
+@app.route("/api/sermons", methods=["GET"])
+def get_sermons():
+    try:
+        data = supabase.table("sermons").select("*").order("created_at", desc=True).execute()
+        return jsonify(data.data), 200
+    except Exception as e:
+        print("SERMONS ERROR:", e)
+        return jsonify({"error": "Failed to fetch sermons"}), 500
+
+@app.route("/api/sermons", methods=["POST"])
+def add_sermon():
+    try:
+        body = request.json
+        payload = {
+            "title": body.get("title"),
+            "speaker_or_leader": body.get("preacher") or body.get("speaker_or_leader"),
+            "date": body.get("date"),
+            "description": body.get("description", ""),
+            "media_url": body.get("url", "")
+        }
+        result = supabase.table("sermons").insert(payload).execute()
+        return jsonify(result.data), 201
+    except Exception as e:
+        print("ADD SERMON ERROR:", e)
+        return jsonify({"error": "Failed to add sermon"}), 500
+
+# ---------------------------------------------------
+#  EVENTS ROUTES (FIXED IMAGE UPLOAD)
 # ---------------------------------------------------
 @app.route("/api/events", methods=["GET"])
 def get_events():
@@ -88,7 +117,6 @@ def create_event():
 
         result = supabase.table("events").insert(payload).execute()
         return jsonify(result.data), 201
-
     except Exception as e:
         print("EVENT CREATE ERROR:", e)
         return jsonify({"error": "Failed to create event"}), 500
@@ -112,25 +140,25 @@ def update_event(event_id):
             "location": location,
             "category": category,
         }
+
         if image_file:
             update_data["image_path"] = upload_to_bucket(image_file)
 
         result = supabase.table("events").update(update_data).eq("id", event_id).execute()
         return jsonify(result.data), 200
-
     except Exception as e:
         print("EVENT UPDATE ERROR:", e)
         return jsonify({"error": "Failed to update event"}), 500
 
 # ---------------------------------------------------
-# DEBUG ROUTE
+#  DEBUG ROUTE
 # ---------------------------------------------------
 @app.route("/api/test")
 def test():
     return "Flask is running OK", 200
 
 # ---------------------------------------------------
-# MAIN
+#  MAIN
 # ---------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
