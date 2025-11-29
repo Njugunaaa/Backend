@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ---------------------------------------------------
-#  SUPABASE CONFIG
+# SUPABASE CONFIG
 # ---------------------------------------------------
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -20,64 +20,39 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------------------------------------------
-#  HELPERS
+# HELPERS
 # ---------------------------------------------------
-def upload_to_bucket(file, folder="uploads"):
-    """Upload a file to Supabase storage and return its public URL (as image_path)."""
+def upload_to_bucket(file, bucket="uploads"):
+    """Upload a file to Supabase storage and return its public URL."""
     try:
+        if file is None:
+            return None
+
         filename = secure_filename(file.filename)
         ext = filename.split(".")[-1]
         new_name = f"{uuid.uuid4()}.{ext}"
-        file_path = f"{folder}/{new_name}"
 
-        # Upload to Supabase
-        upload = supabase.storage.from_(folder).upload(
-            file_path,
-            file,
-            {"content-type": file.mimetype}  # Must be string-only
-        )
-        if not upload:
+        # Supabase expects bytes
+        file_bytes = file.read()
+
+        # Upload to bucket
+        res = supabase.storage.from_(bucket).upload(new_name, file_bytes, {"content-type": file.mimetype})
+        if not res:
+            print("Upload returned False")
             return None
 
-        # Return public URL
-        public_url = supabase.storage.from_(folder).get_public_url(file_path)
-        return public_url.get("publicUrl") if isinstance(public_url, dict) else public_url
+        # Get public URL
+        public_url = supabase.storage.from_(bucket).get_public_url(new_name)
+        if isinstance(public_url, dict):
+            return public_url.get("publicUrl")
+        return public_url
 
     except Exception as e:
         print("UPLOAD ERROR:", e)
         return None
 
 # ---------------------------------------------------
-#  SERMONS ROUTES
-# ---------------------------------------------------
-@app.route("/api/sermons", methods=["GET"])
-def get_sermons():
-    try:
-        data = supabase.table("sermons").select("*").order("created_at", desc=True).execute()
-        return jsonify(data.data), 200
-    except Exception as e:
-        print("SERMONS ERROR:", e)
-        return jsonify({"error": "Failed to fetch sermons"}), 500
-
-@app.route("/api/sermons", methods=["POST"])
-def add_sermon():
-    try:
-        body = request.json
-        payload = {
-            "title": body.get("title"),
-            "speaker_or_leader": body.get("preacher") or body.get("speaker_or_leader"),
-            "date": body.get("date"),
-            "description": body.get("description", ""),
-            "media_url": body.get("url", "")
-        }
-        result = supabase.table("sermons").insert(payload).execute()
-        return jsonify(result.data), 201
-    except Exception as e:
-        print("ADD SERMON ERROR:", e)
-        return jsonify({"error": "Failed to add sermon"}), 500
-
-# ---------------------------------------------------
-#  EVENTS ROUTES
+# EVENTS ROUTES
 # ---------------------------------------------------
 @app.route("/api/events", methods=["GET"])
 def get_events():
@@ -97,8 +72,8 @@ def create_event():
         time_val = request.form.get("time")
         location = request.form.get("location")
         category = request.form.get("category")
-
         image_file = request.files.get("image")
+
         image_path = upload_to_bucket(image_file) if image_file else None
 
         payload = {
@@ -118,7 +93,7 @@ def create_event():
         print("EVENT CREATE ERROR:", e)
         return jsonify({"error": "Failed to create event"}), 500
 
-@app.route("/api/events/<int:event_id>", methods=["PUT"])
+@app.route("/api/events/<int:event_id>", methods=["PUT", "PATCH"])
 def update_event(event_id):
     try:
         title = request.form.get("title")
@@ -127,8 +102,8 @@ def update_event(event_id):
         time_val = request.form.get("time")
         location = request.form.get("location")
         category = request.form.get("category")
-
         image_file = request.files.get("image")
+
         update_data = {
             "title": title,
             "description": description,
@@ -148,14 +123,14 @@ def update_event(event_id):
         return jsonify({"error": "Failed to update event"}), 500
 
 # ---------------------------------------------------
-#  DEBUG ROUTE
+# DEBUG ROUTE
 # ---------------------------------------------------
 @app.route("/api/test")
 def test():
     return "Flask is running OK", 200
 
 # ---------------------------------------------------
-#  MAIN
+# MAIN
 # ---------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
