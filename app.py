@@ -20,32 +20,31 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------------------------------------------
-#  HELPERS
+#  UPLOAD HELPER
 # ---------------------------------------------------
-def upload_to_bucket(file, folder="events"):
-    """
-    Uploads a file into Supabase storage and returns a public URL.
-    Fixes the boolean->header bug by ensuring metadata is ALWAYS strings only.
-    """
+def upload_to_bucket(file, bucket="uploads"):
     try:
         filename = secure_filename(file.filename)
         ext = filename.split(".")[-1]
         new_name = f"{uuid.uuid4()}.{ext}"
-        file_path = f"{folder}/{new_name}"
+        file_path = f"{new_name}"
 
-        # --- UPLOAD ---
-        upload = supabase.storage.from_(folder).upload(
+        # Upload MUST receive bytes, not file object
+        file_bytes = file.read()
+
+        upload = supabase.storage.from_(bucket).upload(
             file_path,
-            file,
-            {"content-type": file.mimetype}  # MUST be string-only dict values
+            file_bytes,
+            {"content-type": file.mimetype}  # must be strings
         )
 
-        if upload is None:
-            return None
+        # Check upload error
+        if isinstance(upload, dict) and upload.get("error"):
+            raise Exception(upload["error"]["message"])
 
-        # --- PUBLIC URL ---
-        public_url = supabase.storage.from_(folder).get_public_url(file_path)
-        return public_url
+        # Get public URL
+        public_url = supabase.storage.from_(bucket).get_public_url(file_path)
+        return public_url["publicURL"]
 
     except Exception as e:
         print("UPLOAD ERROR:", e)
@@ -53,7 +52,7 @@ def upload_to_bucket(file, folder="events"):
 
 
 # ---------------------------------------------------
-#  SERMONS ROUTES (working like your old good version)
+#  SERMONS
 # ---------------------------------------------------
 @app.route("/api/sermons", methods=["GET"])
 def get_sermons():
@@ -61,7 +60,7 @@ def get_sermons():
         data = supabase.table("sermons").select("*").order("created_at", desc=True).execute()
         return jsonify(data.data), 200
     except Exception as e:
-        print("SERMONS ERROR:", e)
+        print("SERMON GET ERROR:", e)
         return jsonify({"error": "Failed to fetch sermons"}), 500
 
 
@@ -69,16 +68,12 @@ def get_sermons():
 def add_sermon():
     try:
         body = request.json
-        title = body.get("title")
-        preacher = body.get("preacher")
-        date = body.get("date")
-        url = body.get("url")
 
         payload = {
-            "title": title,
-            "preacher": preacher,
-            "date": date,
-            "url": url,
+            "title": body.get("title"),
+            "preacher": body.get("preacher"),
+            "date": body.get("date"),
+            "url": body.get("url"),
         }
 
         result = supabase.table("sermons").insert(payload).execute()
@@ -89,16 +84,15 @@ def add_sermon():
 
 
 # ---------------------------------------------------
-#  EVENTS ROUTES (FIXED)
+#  EVENTS
 # ---------------------------------------------------
-
 @app.route("/api/events", methods=["GET"])
 def get_events():
     try:
         data = supabase.table("events").select("*").order("created_at", desc=True).execute()
         return jsonify(data.data), 200
     except Exception as e:
-        print("EVENTS GET ERROR:", e)
+        print("EVENT FETCH ERROR:", e)
         return jsonify({"error": "Failed to fetch events"}), 500
 
 
@@ -110,10 +104,7 @@ def create_event():
         date = request.form.get("date")
 
         image_file = request.files.get("image")
-
-        image_url = None
-        if image_file:
-            image_url = upload_to_bucket(image_file, folder="events")
+        image_url = upload_to_bucket(image_file, bucket="uploads") if image_file else None
 
         payload = {
             "title": title,
@@ -138,7 +129,6 @@ def update_event(event_id):
         date = request.form.get("date")
 
         image_file = request.files.get("image")
-
         update_data = {
             "title": title,
             "description": description,
@@ -146,7 +136,7 @@ def update_event(event_id):
         }
 
         if image_file:
-            image_url = upload_to_bucket(image_file, folder="events")
+            image_url = upload_to_bucket(image_file, bucket="uploads")
             update_data["image_url"] = image_url
 
         result = supabase.table("events").update(update_data).eq("id", event_id).execute()
@@ -158,11 +148,11 @@ def update_event(event_id):
 
 
 # ---------------------------------------------------
-#  DEBUG ROUTE (to confirm Flask runs)
+# TEST ROUTE
 # ---------------------------------------------------
 @app.route("/api/test")
 def test():
-    return "Flask is running OK", 200
+    return "Flask running OK", 200
 
 
 if __name__ == "__main__":
