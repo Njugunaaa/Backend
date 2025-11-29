@@ -14,13 +14,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # service_role key
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=representation"  # ensures JSON response
-}
-
 # -----------------------------
 # Helper functions
 # -----------------------------
@@ -34,25 +27,27 @@ def upload_file_to_supabase(file, bucket="uploads"):
     return public_url
 
 def supabase_get(table):
-    r = supabase.rest.from_(table).select("*")
-    return r
+    res = supabase.table(table).select("*").execute()
+    if res.get("error"):
+        raise Exception(res["error"]["message"])
+    return res["data"]
 
 def supabase_post(table, payload):
-    r = supabase.rest.from_(table).insert(payload).execute()
-    if r.get("status_code", 0) >= 400:
-        raise Exception(r.get("error", {}).get("message", "Unknown error"))
-    return r.get("data", [])
+    res = supabase.table(table).insert(payload).execute()
+    if res.get("error"):
+        raise Exception(res["error"]["message"])
+    return res["data"]
 
 def supabase_patch(table, record_id, payload):
-    r = supabase.rest.from_(table).update(payload).eq("id", record_id).execute()
-    if r.get("status_code", 0) >= 400:
-        raise Exception(r.get("error", {}).get("message", "Unknown error"))
-    return r.get("data", [])
+    res = supabase.table(table).update(payload).eq("id", record_id).execute()
+    if res.get("error"):
+        raise Exception(res["error"]["message"])
+    return res["data"]
 
 def supabase_delete(table, record_id):
-    r = supabase.rest.from_(table).delete().eq("id", record_id).execute()
-    if r.get("status_code", 0) >= 400:
-        raise Exception(r.get("error", {}).get("message", "Unknown error"))
+    res = supabase.table(table).delete().eq("id", record_id).execute()
+    if res.get("error"):
+        raise Exception(res["error"]["message"])
     return {"deleted": True}
 
 # -----------------------------
