@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
@@ -11,24 +10,27 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
 # -----------------------------
 # Helper Functions
 # -----------------------------
 def check_response(res):
-    """Safely extract data from Supabase APIResponse"""
-    if getattr(res, "error", None):
-        raise Exception(res.error.message if hasattr(res.error, "message") else str(res.error))
-    return res.data or []
+    """Check Supabase APIResponse and raise Exception if there is an error"""
+    if hasattr(res, "error") and res.error:
+        raise Exception(str(res.error))
+    return getattr(res, "data", []) or []
+
 
 def upload_file_to_supabase(file, bucket="uploads"):
     """Upload file to Supabase storage and return public URL"""
     filename = file.filename
     content = file.read()
     res = supabase.storage.from_(bucket).upload(filename, content, {"upsert": True})
-    if res.get("error"):
-        raise Exception(res["error"]["message"])
+    if getattr(res, "error", None):
+        raise Exception(str(res.error))
     public_url = supabase.storage.from_(bucket).get_public_url(filename).get("publicURL")
-    return str(public_url or "")
+    return str(public_url)
+
 
 # -----------------------------
 # Events Routes
@@ -37,9 +39,11 @@ def upload_file_to_supabase(file, bucket="uploads"):
 def get_events():
     try:
         res = supabase.table("events").select("*").execute()
-        return jsonify(check_response(res))
+        data = check_response(res)
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/events", methods=["POST"])
 def create_event():
@@ -56,10 +60,13 @@ def create_event():
             "category": request.form.get("category", ""),
             "image_path": image_url
         }
+
         res = supabase.table("events").insert(payload).execute()
-        return jsonify(check_response(res)), 201
+        data = check_response(res)
+        return jsonify(data), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/events/<int:event_id>", methods=["PATCH"])
 def update_event(event_id):
@@ -73,15 +80,17 @@ def update_event(event_id):
             "date": request.form.get("date", ""),
             "time": request.form.get("time", ""),
             "location": request.form.get("location", ""),
-            "category": request.form.get("category", "")
+            "category": request.form.get("category", ""),
         }
         if image_url:
             payload["image_path"] = image_url
 
         res = supabase.table("events").update(payload).eq("id", event_id).execute()
-        return jsonify(check_response(res))
+        data = check_response(res)
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/events/<int:event_id>", methods=["DELETE"])
 def delete_event(event_id):
@@ -92,55 +101,6 @@ def delete_event(event_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# -----------------------------
-# Sermons Routes
-# -----------------------------
-@app.route("/api/sermons", methods=["GET"])
-def get_sermons():
-    try:
-        res = supabase.table("sermons").select("*").execute()
-        return jsonify(check_response(res))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/sermons", methods=["POST"])
-def create_sermon():
-    try:
-        payload = {
-            "title": request.json.get("title", ""),
-            "speaker_or_leader": request.json.get("speaker_or_leader", ""),
-            "date": request.json.get("date", ""),
-            "description": request.json.get("description", ""),
-            "media_url": request.json.get("media_url", "")
-        }
-        res = supabase.table("sermons").insert(payload).execute()
-        return jsonify(check_response(res)), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/sermons/<int:sermon_id>", methods=["PATCH"])
-def update_sermon(sermon_id):
-    try:
-        payload = {
-            "title": request.json.get("title", ""),
-            "speaker_or_leader": request.json.get("speaker_or_leader", ""),
-            "date": request.json.get("date", ""),
-            "description": request.json.get("description", ""),
-            "media_url": request.json.get("media_url", "")
-        }
-        res = supabase.table("sermons").update(payload).eq("id", sermon_id).execute()
-        return jsonify(check_response(res))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/sermons/<int:sermon_id>", methods=["DELETE"])
-def delete_sermon(sermon_id):
-    try:
-        res = supabase.table("sermons").delete().eq("id", sermon_id).execute()
-        check_response(res)
-        return jsonify({"deleted": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # -----------------------------
 # Health Check
@@ -148,6 +108,7 @@ def delete_sermon(sermon_id):
 @app.route("/health")
 def health():
     return "OK", 200
+
 
 # -----------------------------
 # Run App
