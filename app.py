@@ -14,7 +14,7 @@ CORS(app)
 # Supabase Setup
 # ---------------------------
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ADMIN_PASSWORD = "Elim@2025"
@@ -189,3 +189,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
