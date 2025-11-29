@@ -11,43 +11,44 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Supabase Config
 # -----------------------------
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # service_role key
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Use service_role key
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------------
 # Helper functions
 # -----------------------------
 def upload_file_to_supabase(file, bucket="uploads"):
+    """Upload a file to Supabase storage and return public URL."""
     filename = file.filename
     file_content = file.read()
     res = supabase.storage.from_(bucket).upload(filename, file_content, {"upsert": True})
-    if res.get("error"):
-        raise Exception(f"Upload failed: {res['error']['message']}")
+    if res.error:
+        raise Exception(f"Upload failed: {res.error.get('message', 'Unknown error')}")
     public_url = supabase.storage.from_(bucket).get_public_url(filename)
     return public_url
 
 def supabase_get(table):
-    res = supabase.table(table).select("*").execute()
-    if res.get("error"):
-        raise Exception(res["error"]["message"])
-    return res["data"]
+    r = supabase.table(table).select("*").execute()
+    if r.error:
+        raise Exception(r.error.get("message", "Unknown error"))
+    return r.data or []
 
 def supabase_post(table, payload):
-    res = supabase.table(table).insert(payload).execute()
-    if res.get("error"):
-        raise Exception(res["error"]["message"])
-    return res["data"]
+    r = supabase.table(table).insert(payload).execute()
+    if r.error:
+        raise Exception(r.error.get("message", "Unknown error"))
+    return r.data or []
 
 def supabase_patch(table, record_id, payload):
-    res = supabase.table(table).update(payload).eq("id", record_id).execute()
-    if res.get("error"):
-        raise Exception(res["error"]["message"])
-    return res["data"]
+    r = supabase.table(table).update(payload).eq("id", record_id).execute()
+    if r.error:
+        raise Exception(r.error.get("message", "Unknown error"))
+    return r.data or []
 
 def supabase_delete(table, record_id):
-    res = supabase.table(table).delete().eq("id", record_id).execute()
-    if res.get("error"):
-        raise Exception(res["error"]["message"])
+    r = supabase.table(table).delete().eq("id", record_id).execute()
+    if r.error:
+        raise Exception(r.error.get("message", "Unknown error"))
     return {"deleted": True}
 
 # -----------------------------
